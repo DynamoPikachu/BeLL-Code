@@ -1,0 +1,123 @@
+kvarus = 9;
+alvarus = 10;
+k_zaehler = 0;
+typP = "t";
+Entfernungen = zeros(kvarus,alvarus);
+PBRs = zeros(kvarus,alvarus);
+Kohaerenzlaengen = zeros(kvarus,alvarus);
+Amplituden = zeros(kvarus,alvarus);
+Amplituden2 = zeros(kvarus,alvarus);
+Halbwertsbreiten = zeros(kvarus,alvarus);
+for kvar = [5,.10,20,50,100,200,500,1000,2000,5000] %Kohärenzlänge variieren (eigentlich nur Pulslänge aber das ergibt sich daraus
+    k_zaehler = k_zaehler + 1;
+    if kvar == 55
+        typP = "h";
+    end
+    for alvar = 1:alvarus %AbstandLängeVARiieren
+        %% Parameter setzen
+        c = 299792458;
+        f = 4.5014e+14;
+        lambda = c/f;
+        %% Sendefläche deklarieren
+        rs = 17E-6;
+        ns = 1000;
+        typS = "Hex";
+        
+        %Fokusposition
+        f_x = 0E-6;
+        f_y = 0E-6;
+        f_z = alvar*50E-6;
+        
+        [xs,ys,zs,envxs,envys,envzs,As,MCF_cdia] = Sendeflaeche(ns,rs,typS,f_x,f_y,f_z);
+        %% Empfangsfläche deklarieren
+        ne = 20000;     %für RechteckP egal
+        faktor = 1;     %für RechteckP egal
+        breiteE = 20E-6;
+        laengeE = 0;
+        nx = 101;
+        nz = 1;
+        typE = "RechteckP";
+        abstand = 1E-6;
+        [xe,ye,ze,Ae] = Empfangsflaeche(ne, lambda, faktor, typE, abstand, nx, breiteE, nz, laengeE, f_x, f_y, f_z);
+        figure(2);
+        clf;
+        plot3(xs,ys,zs,'b.');
+        hold on;
+        plot3(xe,ye,ze,'r.');
+        hold on;
+        plot3(f_x,f_y,f_z,'b.');
+        %% Signal
+        %typP = "t";  %Pulstyp  (h)armonisch   (t)ransient
+        figure(3);
+        [t,s,ft,fs,f_achse,Bandbreite,f,N,L_puls,Kohaerenzlaenge]=Sinuspulsus(typP,kvar);
+        index = find(and(f_achse > (f-Bandbreite), f_achse < (f+Bandbreite)));
+        
+        %% Vorbereitungen für Schleife
+        fft_empfang = zeros(1,length(ft));
+        Ee = zeros(1,length(Ae));
+        
+        %% Parameter setzen (ab hier Schleife)
+        for Ke = 1:length(xe)          %für jeden Empfangspunkt
+            for Kf = index                  %für jede Frequenz
+                f = (Kf/length(ft))*fs;
+                lambda = c/f;
+                %% Fokus berechnen
+                phi = Fokus(xs,ys,zs,f_x,f_y,f_z,lambda);
+                %% Rechnen
+                typR = "Gauss";
+                w0 = (MCF_cdia/2)*1E-6;
+                As = ones(1,length(As)).*ft(Kf);
+                Ae = Berechnung(f,c,xs,ys,zs,envxs,envys,envzs,xe,ye,ze,As,w0,typR,phi,Ke);
+                fft_empfang(Kf) = Ae;
+                fft_empfang(length(ft)-Kf+2) = conj(fft_empfang(Kf));
+            end
+            Ke;
+            maxim = max(abs(ifft(fft_empfang)));
+            maxim = maxim(1);
+            Ee(Ke) = sum(ifft(fft_empfang).^2); %Leistung (gemittelt)
+        end
+        ind = find(ze > 0.1E-6);                             % Indizes aller Empfangspunkte mit z>5mm
+        maxi = max(abs(Ee(ind)));                            % Maximalwert des Drucks für z>5mm
+        maxi = maxi(1);
+        AbsAe = abs(Ee);
+        Ee = Ee./(length(xs));
+        Ergebnis = max(Ee)
+        
+        figure(randi(190)); clf
+        plot(Ee);
+        
+        peter = 0; %Passiv Errechnender Träger der Entfernung zum Richtigen wert
+        while Ee((nx+1)/2+peter)>Ergebnis/2
+            peter = peter+1;
+        end
+        f_roh = (nx+1)/2;
+        HWB_roh = 2*peter;
+        HWB_meter = 2*peter*(breiteE/(nx-1));        
+        %%   Heatmap plotten
+%         figure(4);
+%         clf;
+%         %x = sort(unique(   round(500*xe)/500   ));       % Punkte auf der Empfangsflaeche definieren
+%         x = linspace(min(xe),max(xe),max(xe)*1E6);
+%         %y = sort(unique(   round(500*ze)/500   ));
+%         y = linspace(min(ze),max(ze),max(ze)*1E6);
+%         [XX YY] = meshgrid(x,y);
+%         colormap gray;
+%         ZZ = griddata(xe,ze,AbsAe,XX,YY,'linear');                 % Flächiger Plot
+%         figure(123);
+%         imagesc(xe,ze,ZZ);
+%         figure(1234);
+%         contourf(XX,YY,ZZ,0:1E-3:1,'linestyle','none');
+%         colorbar;
+        if typP == "h"
+            Bandbreite = 0;
+        end
+        Entfernungen(k_zaehler,alvar) = f_z;
+        Kohaerenzlaengen(k_zaehler,alvar) = Kohaerenzlaenge;
+        Amplituden(k_zaehler,alvar) = AbsAe((nx+1)/2);
+        Amplituden2(k_zaehler,alvar) = Ee((nx+1)/2);
+        PBRs(k_zaehler,alvar) = max(Ee)/min(Ee);
+        Halbwertsbreiten(k_zaehler,alvar) = HWB_meter;
+        alvar
+    end
+    kvar
+end
